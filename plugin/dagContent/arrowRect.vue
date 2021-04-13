@@ -1,6 +1,6 @@
-<!--  剪头渲染组件  -->
+<!-- 这里演示新组件类型的扩充 折线组件 -->
 <template>
-        <g v-if="this.DataAll">
+        <g v-if="this.DataAll" class="arrow-rect" @mousemove="dragArrowCenter" @mouseout="dragArrowCenterEnd" @mouseup="dragArrowCenterEnd">
           <path
           @mouseover="pathHover"
           @mouseout="pathOut"
@@ -12,6 +12,10 @@
           <text ref="edgeText" v-if="each.edgesText" :style="computedText()">{{each.edgesText}}</text>
           <polyline class="only-watch-el" :points="computedArrow()"
           style="stroke:#006600;"/>
+          <circle @mousedown="touchArrowCenter" :cx="computedCenterCx()" :cy="computedCenterCy()" r="5"
+            style="stroke:transparent;
+            stroke-width: 100;
+            fill:#FFFFFF"/>
           <circle class="only-watch-el" :cx="computedCx()" :cy="computedCy()" r="5"
             style="stroke:#006600;
             stroke-width: 2;
@@ -52,7 +56,10 @@ export default {
         position: "absolute",
         left: `${358}px`,
         top: `${264}px`
-      }
+      },
+      currentEvent: null,
+      distanceY: 0,
+      ownVoffset: 0,
     };
   },
   methods: {
@@ -61,6 +68,32 @@ export default {
     },
     pathOut() {
       this.isHover = false;
+    },
+    dragArrowCenterEnd(e) {
+      e.stopPropagation();
+      e.preventDefault(); 
+      if (this.currentEvent === "dragArrowCenter") {
+        this.currentEvent = null;
+        this.distanceY = 0;
+      }
+    },
+    touchArrowCenter(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      console.log("touch", e)
+      this.currentEvent = "dragArrowCenter";
+      this.distanceY = e.pageY;
+      this.ownVoffset = this.each.VOffset || 0
+    },
+    dragArrowCenter(e) {
+      if (this.currentEvent === "dragArrowCenter") {
+        const _Y = e.pageY;
+        const VOffset = _Y - this.distanceY + this.ownVoffset;
+        console.log("VOffset->", VOffset)
+        const _DataAll = JSON.parse(JSON.stringify(this.DataAll))
+        _DataAll.rectEdges[this.index].VOffset = VOffset
+        this.$emit('updateData', _DataAll, "updateVoffset")
+      }
     },
     click_menu_cover(e) {
       // 点击遮罩
@@ -95,24 +128,18 @@ export default {
           dst_input_idx, // 目标
           dst_node_id, // 目标id
           src_node_id, // 来源id
-          src_output_idx // 来源
+          src_output_idx, // 来源
+          VOffset = 0, // 纵向位移量
         } = this.each;
         const f_Pos = this.DataAll.nodes.find(item => item.id === src_node_id);
         const t_Pos = this.DataAll.nodes.find(item => item.id === dst_node_id);
         if (!f_Pos || !t_Pos) { alert(src_node_id) }
-        if (this.isVertical()) {
-          f_X = f_Pos.pos_x + (180 / (f_Pos.out_ports.length + 1)) * (src_output_idx + 1);
-          f_Y = f_Pos.pos_y + 30;
-          t_X = t_Pos.pos_x + (180 / (t_Pos.in_ports.length + 1)) * (dst_input_idx + 1);
-          t_Y = t_Pos.pos_y;
-          return `M ${f_X} ${f_Y}  Q ${f_X} ${f_Y + 50} ${(t_X + f_X) / 2} ${(t_Y + f_Y) / 2} T ${t_X} ${t_Y}`;
-        } else {
-          f_X = f_Pos.pos_x + 180
-          f_Y = f_Pos.pos_y + 15
-          t_X = t_Pos.pos_x
-          t_Y = t_Pos.pos_y + 15
-          return `M ${f_X} ${f_Y}  Q ${f_X + 30} ${f_Y} ${(t_X + f_X) / 2} ${(t_Y + f_Y) / 2} T ${t_X} ${t_Y}`;
-        }
+        f_X = f_Pos.pos_x + (180 / (f_Pos.out_ports.length + 1)) * (src_output_idx + 1);
+        f_Y = f_Pos.pos_y + 30;
+        t_X = t_Pos.pos_x + (180 / (t_Pos.in_ports.length + 1)) * (dst_input_idx + 1);
+        t_Y = t_Pos.pos_y;
+        // 上面逻辑通过父子节点位置计算起始点
+        return `M ${f_X} ${f_Y} V ${((f_Y + t_Y) / 2 + VOffset)} H ${t_X} T ${t_X} ${t_Y}`;
       }
     },
     computedText() { // 计算文字坐标
@@ -193,6 +220,38 @@ export default {
       }
       return `${f_Y}`;
     },
+    computedCenterCy() {
+      let f_X, f_Y, t_X, t_Y;
+      const VConstantHeight = 15;
+      const {
+        dst_input_idx, // 目标
+        dst_node_id, // 目标id
+        src_node_id, // 来源id
+        src_output_idx, // 来源
+        VOffset = 0, // 纵向位移量
+      } = this.each;
+      const f_Pos = this.DataAll.nodes.find(item => item.id === src_node_id);
+      const t_Pos = this.DataAll.nodes.find(item => item.id === dst_node_id);
+      f_Y = f_Pos.pos_y;
+      t_Y = t_Pos.pos_y;
+      return `${(f_Y + t_Y) / 2 + VOffset + VConstantHeight}`;
+    },
+    computedCenterCx() {
+      const NODE_WIDTH_CONSTANT = 90; // 节点固定宽度
+      let f_X, f_Y, t_X, t_Y
+      const {
+        dst_input_idx, // 目标
+        dst_node_id, // 目标id
+        src_node_id, // 来源id
+        src_output_idx, // 来源
+        VOffset = 0, // 纵向位移量
+      } = this.each;
+      const f_Pos = this.DataAll.nodes.find(item => item.id === src_node_id);
+      const t_Pos = this.DataAll.nodes.find(item => item.id === dst_node_id);
+      f_X = f_Pos.pos_x;
+      t_X = t_Pos.pos_x;
+      return `${f_X + NODE_WIDTH_CONSTANT + ((t_X - f_X) / 2)}`;;
+    },
     isVertical() {
       let GlobalConfig = { isVertical: true }
       let _GlobalConfig = localStorage.getItem('GlobalConfig')
@@ -213,6 +272,21 @@ export default {
 </script>
 
 <style scoped>
+.arrow-rect {
+  padding: 20px;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.arrow-rect::after {
+  content: ".";
+  font-size: 0;
+  position: absolute;
+  left: -50px;
+  right: -50px;
+  top: -50;
+  height: -50px;
+}
 .only-watch-el {
    pointer-events: none;
 }
